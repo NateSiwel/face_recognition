@@ -13,3 +13,5 @@
 
 # TODO 
 * Implement face alignment before fetching embeddings
+* Replace face detetector w/ improved dlib?
+* refactor
