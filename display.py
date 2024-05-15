@@ -8,6 +8,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
 import argparse
 import pickle
+import dlib
 
 #usbipd attach --busid 2-6 --wsl
 
@@ -24,6 +25,29 @@ embedder = cv2.dnn.readNetFromTorch('models/nn4.small2.v1.t7')
 imagePaths = list(paths.list_images('faces'))
 knownNames=[]
 knownEmbeddings=[]
+
+PREDICTOR_PATH = "models/shape_predictor_68_face_landmarks.dat"
+predictor = dlib.shape_predictor(PREDICTOR_PATH)
+
+def get_landmarks(face):
+    gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+    landmarks = predictor(gray, dlib.rectangle(0, 0, face.shape[1], face.shape[0]))
+    landmarks_np = np.matrix([[p.x, p.y] for p in landmarks.parts()])
+
+    #CORNERS = landmarks_np[[36] + [45]]
+    return landmarks_np[36], landmarks_np[45] 
+
+def annotate_landmarks(im, landmarks):
+    """
+    RIGHT_EYE_POINTS = list(range(36, 42))
+    LEFT_EYE_POINTS = list(range(42, 48))
+    eyes = landmarks[LEFT_EYE_POINTS + RIGHT_EYE_POINTS] 
+    """
+    CORNERS = landmarks[[36] + [45]]
+    for idx, point in enumerate(CORNERS):
+        pos = (point[0, 0], point[0, 1])
+        cv2.circle(im, pos, 2, color=(0, 255, 255))
+    return im
 
 def get_face_positions(image, draw=False):
     blob = cv2.dnn.blobFromImage(image, 1.0, (300, 300), (300, 300))
@@ -44,10 +68,28 @@ def get_face_positions(image, draw=False):
     return locations
 
 def getEmbedding(face):
-    faceBlob = cv2.dnn.blobFromImage(face, 1.0 / 255,
-        (96, 96), (0, 0, 0), swapRB=True, crop=False)
+    left_eye, right_eye = get_landmarks(face)
+    #face_with_landmarks = face.copy()
+    #cv2.imshow("landmarks", annotate_landmarks(face_with_landmarks, landmarks))
+    left_eye = np.squeeze(np.asarray(left_eye))
+    right_eye = np.squeeze(np.asarray(right_eye))
+
+    #angle between eye corners
+    dx = right_eye[0] - left_eye[0]
+    dy = right_eye[1] - left_eye[1]
+    angle = np.degrees(np.arctan2(dy, dx))
+    
+    center = (face.shape[1] // 2, face.shape[0] // 2)
+
+    rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated_face = cv2.warpAffine(face, rotation_matrix, (face.shape[1], face.shape[0]))
+    #cv2.imshow("rotface", rotated_face)
+    
+    faceBlob = cv2.dnn.blobFromImage(rotated_face, 1.0 / 255,
+                                     (96, 96), (0, 0, 0), swapRB=True, crop=False)
     embedder.setInput(faceBlob)
     vec = embedder.forward()
+    
     return vec
 
 for (i, imagePath) in enumerate(imagePaths):
@@ -77,7 +119,7 @@ le = LabelEncoder()
 names = le.fit_transform(knownNames)
 
 print("[INFO] Training model...")
-recognizer = SVC(C=3.0, kernel="linear", probability=True)
+recognizer = SVC(C=1.0, kernel="linear", probability=True)
 recognizer.fit(knownEmbeddings, names)
 
 print(le.inverse_transform(recognizer.classes_))
