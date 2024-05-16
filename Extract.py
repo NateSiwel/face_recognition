@@ -1,53 +1,17 @@
 import cv2
-from numpy.linalg import svd, norm
-from cv2 import dnn
 import numpy as np
 import os
 from imutils import paths
 from sklearn.preprocessing import LabelEncoder
-from sklearn.svm import SVC, LinearSVC
-import argparse
+from sklearn.svm import LinearSVC
 import pickle
 import dlib
-import pickle
-from sklearn.utils import class_weight
 #usbipd attach --busid 2-6 --wsl
-
-prototxt = 'models/deploy.prototxt.txt'    
-caffemodel='models/res10_300x300_ssd_iter_140000.caffemodel'     
-model =  cv2.dnn.readNetFromCaffe( prototxt, caffemodel)     
-
-embedder = cv2.dnn.readNetFromTorch('models/nn4.v2.t7')
-imagePaths = list(paths.list_images('faces_test'))
-knownNames=[]
-knownEmbeddings=[]
-
-PREDICTOR_PATH = "models/shape_predictor_68_face_landmarks.dat"
-predictor = dlib.shape_predictor(PREDICTOR_PATH)
-
-"""
-print("[INFO] Training model...")
-recognizer = SVC(C=3.0, kernel="linear", probability=True)
-recognizer.fit(knownEmbeddings, names)
-"""
-
-class Display():
-    def __init__(self):
-        self.video = cv2.VideoCapture(0)
-        cv2.namedWindow("Scanner")
-        self.video.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-
-    def read(self):
-        return self.video.read()
-
-    def end(self):
-        self.video.release()
-        cv2.destroyAllWindows()
 
 class Extract():
     def __init__(self):
-        self.prototxt = 'models/deploy.prototxt.txt'    
-        self.caffemodel='models/res10_300x300_ssd_iter_140000.caffemodel'     
+        prototxt = 'models/deploy.prototxt.txt'    
+        caffemodel='models/res10_300x300_ssd_iter_140000.caffemodel'     
         self.model =  cv2.dnn.readNetFromCaffe( prototxt, caffemodel)     
 
         self.embedder = cv2.dnn.readNetFromTorch('models/nn4.v2.t7')
@@ -76,10 +40,10 @@ class Extract():
     def pickle_data(self):
         knownNames = []
         knownEmbeddings = []
-        for (i, imagePath) in enumerate(imagePaths):
+        for (i, imagePath) in enumerate(self.imagePaths):
             # extract the person name from the image path
             print("[INFO] processing image {}/{}".format(i + 1,
-                len(imagePaths)))
+                len(self.imagePaths)))
             name = imagePath.split(os.path.sep)[-2]
             image = cv2.imread(imagePath)
             (h, w) = image.shape[:2]
@@ -125,8 +89,8 @@ class Extract():
         resized_face = cv2.resize(face_rgb, (96, 96))
         faceBlob = cv2.dnn.blobFromImage(resized_face, 1.0/155,
                                          (96, 96), (0, 0, 0), swapRB=False, crop=False)
-        embedder.setInput(faceBlob)
-        vec = embedder.forward()
+        self.embedder.setInput(faceBlob)
+        vec = self.embedder.forward()
 
         return vec 
 
@@ -146,13 +110,12 @@ class Extract():
 
         rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
         rotated_face = cv2.warpAffine(face, rotation_matrix, (face.shape[1], face.shape[0]))
-        cv2.imshow("rotface", rotated_face)
 
         return rotated_face
 
     def get_landmarks(self, face):
         gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-        landmarks = predictor(gray, dlib.rectangle(0, 0, face.shape[1], face.shape[0]))
+        landmarks = self.predictor(gray, dlib.rectangle(0, 0, face.shape[1], face.shape[0]))
         landmarks_np = np.matrix([[p.x, p.y] for p in landmarks.parts()])
 
         #CORNERS = landmarks_np[[36] + [45]]
@@ -178,45 +141,3 @@ class Extract():
         return name
 
 
-
-#initiates display
-display = Display()
-
-#loads embeddings
-extract = Extract()
-
-while True:
-    ret, frame = display.read()
-    if not ret:
-        break
-
-    face_positions = extract.get_face_positions(frame, draw=True)
-
-    for (i, face) in enumerate(face_positions):
-        startX, startY, endX, endY = face_positions[i]
-        face = frame[startY:endY, startX:endX]
-        (fH, fW) = face.shape[:2]
-
-        if fW < 20 or fH < 20:
-            continue
-
-        vec = extract.get_embedding(face)
-        name = extract.predict_face(vec)
-
-        cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)
-        text = "{}".format(name)
-        print(name)
-        if name == "Nathan":
-            cv2.imshow("bypassed", face)
-            print("Identity verified")
-        cv2.putText(frame, text, (startX, startY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-
-    cv2.imshow("Scanner", frame)
-
-    k = cv2.waitKey(1)
-    if k % 256 == 27:
-        # ESC pressed
-        print("Escape hit, closing...")
-        break
-
-display.end()
