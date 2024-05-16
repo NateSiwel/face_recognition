@@ -1,3 +1,4 @@
 faces/*
 faces_test
 face_recognition_model.pth
+training_data.p

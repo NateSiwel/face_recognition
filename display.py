@@ -5,10 +5,13 @@ import numpy as np
 import os
 from imutils import paths
 from sklearn.preprocessing import LabelEncoder
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 import argparse
 import pickle
 import dlib
+import pickle
+
+from sklearn.utils import class_weight
 
 #usbipd attach --busid 2-6 --wsl
 
@@ -21,7 +24,7 @@ prototxt = 'models/deploy.prototxt.txt'
 caffemodel='models/res10_300x300_ssd_iter_140000.caffemodel'     
 model =  cv2.dnn.readNetFromCaffe( prototxt, caffemodel)     
 
-embedder = cv2.dnn.readNetFromTorch('models/nn4.small2.v1.t7')
+embedder = cv2.dnn.readNetFromTorch('models/nn4.v2.t7')
 imagePaths = list(paths.list_images('faces_test'))
 knownNames=[]
 knownEmbeddings=[]
@@ -67,7 +70,8 @@ def get_face_positions(image, draw=False):
 
     return locations
 
-def getEmbedding(face):
+
+def align_face(face):
     left_eye, right_eye = get_landmarks(face)
     #face_with_landmarks = face.copy()
     #cv2.imshow("landmarks", annotate_landmarks(face_with_landmarks, landmarks))
@@ -78,50 +82,72 @@ def getEmbedding(face):
     dx = right_eye[0] - left_eye[0]
     dy = right_eye[1] - left_eye[1]
     angle = np.degrees(np.arctan2(dy, dx))
-    
+
     center = (face.shape[1] // 2, face.shape[0] // 2)
 
     rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
     rotated_face = cv2.warpAffine(face, rotation_matrix, (face.shape[1], face.shape[0]))
-    #cv2.imshow("rotface", rotated_face)
-    
-    faceBlob = cv2.dnn.blobFromImage(rotated_face, 1.0 / 255,
-                                     (96, 96), (0, 0, 0), swapRB=True, crop=False)
+    cv2.imshow("rotface", rotated_face)
+
+    return rotated_face
+
+
+def getEmbedding(face):
+    face = align_face(face) 
+    face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)    
+    resized_face = cv2.resize(face_rgb, (96, 96))
+    faceBlob = cv2.dnn.blobFromImage(resized_face, 1.0 / 155,
+                                     (96, 96), (0, 0, 0), swapRB=False, crop=False)
     embedder.setInput(faceBlob)
     vec = embedder.forward()
     
     return vec
 
-for (i, imagePath) in enumerate(imagePaths):
-    # extract the person name from the image path
-    print("[INFO] processing image {}/{}".format(i + 1,
-        len(imagePaths)))
-    name = imagePath.split(os.path.sep)[-2]
-    image = cv2.imread(imagePath)
-    (h, w) = image.shape[:2]
+def pickle_data():
+    for (i, imagePath) in enumerate(imagePaths):
+        # extract the person name from the image path
+        print("[INFO] processing image {}/{}".format(i + 1,
+            len(imagePaths)))
+        name = imagePath.split(os.path.sep)[-2]
+        image = cv2.imread(imagePath)
+        (h, w) = image.shape[:2]
 
-    face_positions = get_face_positions(image) 
+        face_positions = get_face_positions(image) 
 
-    if len(face_positions) > 1:
-        print(f"More than one face detected in training image @ location {imagePath}")
-        continue 
+        if len(face_positions) > 1:
+            print(f"More than one face detected in training image @ location {imagePath}")
+            continue 
 
-    if len(face_positions) == 1:
-        startX, startY, endX, endY = face_positions[0]
-        face = image[startY:endY, startX:endX]
-        vec = getEmbedding(face)
+        if len(face_positions) == 1:
+            startX, startY, endX, endY = face_positions[0]
+            face = image[startY:endY, startX:endX]
+            vec = getEmbedding(face)
 
-        if name != "Nathan":
-            name = "Unknown"
-        knownNames.append(name)
-        knownEmbeddings.append(vec.flatten())
+            if name != "Nathan":
+                name = "Unknown"
+            knownNames.append(name)
+            knownEmbeddings.append(vec.flatten())
+
+    training_data = {"names": knownNames, "embeddings": knownEmbeddings} 
+    pickle.dump(training_data, open("training_data.p", "wb"))
+
+training_data = pickle.load(open("training_data.p", "rb"))
+
+knownNames = training_data["names"]
+knownEmbeddings = training_data["embeddings"]
 
 le = LabelEncoder()
 
 names = le.fit_transform(knownNames)
 
+"""
 print("[INFO] Training model...")
-recognizer = SVC(C=1.0, kernel="linear", probability=True)
+recognizer = SVC(C=3.0, kernel="linear", probability=True)
+recognizer.fit(knownEmbeddings, names)
+"""
+
+print("[INFO] Training model...")
+recognizer = LinearSVC()
 recognizer.fit(knownEmbeddings, names)
 
 print(le.inverse_transform(recognizer.classes_))
@@ -135,7 +161,6 @@ while True:
     face_positions = get_face_positions(frame, draw=True)
 
     for (i, face) in enumerate(face_positions):
-
         startX, startY, endX, endY = face_positions[i]
         face = frame[startY:endY, startX:endX]
         (fH, fW) = face.shape[:2]
@@ -143,25 +168,26 @@ while True:
         if fW < 20 or fH < 20:
             continue
 
-        vec = getEmbedding(face)  
+        vec = getEmbedding(face)
 
-        #perform classification to recognize the face
-        preds = recognizer.predict_proba(vec)[0]
-        j = np.argmax(preds)
-        proba = preds[j]
+        # Perform classification to recognize the face
+        pred = recognizer.predict(vec)[0]
+        name = le.inverse_transform(recognizer.classes_)[pred]
+
         cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)
-        name = le.inverse_transform(recognizer.classes_)[j]
-
-        text = "{}: {:.2f}%".format(name, proba * 100)
-        print(text)
+        text = "{}".format(name)
+        if name == "Nathan":
+            cv2.imshow("bypassed", face)
+            print("Identity verified")
+        cv2.putText(frame, text, (startX, startY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
     cv2.imshow("Scanner", frame)
 
     k = cv2.waitKey(1)
-    if k%256 == 27:
+    if k % 256 == 27:
         # ESC pressed
         print("Escape hit, closing...")
         break
 
 video.release()
-cv2.destroyAllWindows
+cv2.destroyAllWindows()
