@@ -22,7 +22,7 @@ caffemodel='models/res10_300x300_ssd_iter_140000.caffemodel'
 model =  cv2.dnn.readNetFromCaffe( prototxt, caffemodel)     
 
 embedder = cv2.dnn.readNetFromTorch('models/nn4.small2.v1.t7')
-imagePaths = list(paths.list_images('faces'))
+imagePaths = list(paths.list_images('faces_test'))
 knownNames=[]
 knownEmbeddings=[]
 
@@ -111,6 +111,8 @@ for (i, imagePath) in enumerate(imagePaths):
         face = image[startY:endY, startX:endX]
         vec = getEmbedding(face)
 
+        if name != "Nathan":
+            name = "Unknown"
         knownNames.append(name)
         knownEmbeddings.append(vec.flatten())
 

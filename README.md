@@ -2,7 +2,8 @@
 * Detects faces in real time using pre-trained caffe model
 * Extracts face embeddings using pre-trained pytorch model
 * Trains an SVM classifier based on a dataset of known faces
-* Recognizes faces in real time from webcam or other video, displaying name and confidence score 
+* Automatically aligns face if tilted 
+* Recognizes faces in real time from webcam or other video, displaying binary classification 
 
 # Dependencies
 * Python 3.x
@@ -12,6 +13,6 @@
 * scikit-learn
 
 # TODO 
-* Implement face alignment before fetching embeddings
+* Replace embedder w/ improved model
 * Replace face detetector w/ improved dlib?
 * refactor
