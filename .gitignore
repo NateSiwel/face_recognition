@@ -1,1 +1,3 @@
-faces/Nathan
+faces/*
+faces_test
+face_recognition_model.pth
