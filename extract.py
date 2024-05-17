@@ -3,7 +3,7 @@ import numpy as np
 import os
 from imutils import paths
 from sklearn.preprocessing import LabelEncoder
-from sklearn.svm import LinearSVC
+from sklearn.svm import LinearSVC, SVC
 import pickle
 import dlib
 #usbipd attach --busid 2-6 --wsl
@@ -33,6 +33,7 @@ class Extract():
 
         print("[INFO] Training model...")
         self.recognizer = LinearSVC()
+        self.recognizer = SVC(gamma="scale")
         self.recognizer.fit(self.knownEmbeddings, self.names)
 
         print(self.le.inverse_transform(self.recognizer.classes_))
@@ -63,6 +64,9 @@ class Extract():
                     name = "Unknown"
                 knownNames.append(name)
                 knownEmbeddings.append(vec.flatten())
+
+        pickle.dump({"names": knownNames, "embeddings": knownEmbeddings}, open("training_data.p", "wb"))
+
         return knownNames, knownEmbeddings
 
     def get_face_positions(self, image, draw=False):
