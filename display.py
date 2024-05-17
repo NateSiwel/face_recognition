@@ -1,5 +1,5 @@
 import cv2
-from Extract import Extract
+from extract import Extract
 #usbipd attach --busid 2-6 --wsl
 
 class Display():
